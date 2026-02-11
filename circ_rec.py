@@ -1,8 +1,11 @@
 # 2D MHD free boundary problem
+# use gmsh
+# 2: interface
+# 1: outer BC
 from firedrake import *
 from firedrake.pyplot import tricontourf
 import matplotlib.pyplot as plt
-
+from matplotlib.animation import FuncAnimation
 # solver parameter
 lu = {
 	 "mat_type": "aij",
@@ -59,7 +62,9 @@ def plot_solution(u_h, time=None, vmin=None, vmax=None):
         ax.set_title(f'$t={time}$')
     cbar = fig.colorbar(cs)
 
-mesh = UnitDiskMesh(2)
+#mesh = UnitDiskMesh(2)
+mesh = Mesh("mesh/circle_in_rect.msh")
+mesh2 = Submesh(mesh, 2, 2) # 不太对，需要指明谁是 circle
 x, y = SpatialCoordinate(mesh)
 
 # function space
@@ -85,18 +90,19 @@ z_prev.sub(2).interpolate(B_init)
 z.assign(z_prev)
 
 # domain as a function
-V_coords = VectorFunctionSpace(mesh, 'CG', 1)
+V_coords = VectorFunctionSpace(mesh2, 'CG', 1)
 w_vel = Function(V_coords)
 v = as_vector([x, y])*exp(-t)
 w_trial, w_test = TrialFunction(V_coords), TestFunction(V_coords)
 bc_vel =  Function(V_coords).interpolate(z_prev.sub(0))
-bc_move_mesh = DirichletBC(V_coords, bc_vel, 'on_boundary')
+bc_move_mesh = DirichletBC(V_coords, bc_vel, (2, )) # interface
 BB = inner(grad(w_trial), grad(w_test))*dx - Constant(0)*w_test[0]*dx
 
 
 mm_problem = LinearVariationalProblem(lhs(BB), rhs(BB), w_vel, bcs=bc_move_mesh)
 mm_solver = LinearVariationalSolver(mm_problem)
 
+dx = Measure("dx", domain=mesh)
 F = (
     # equation for u
     + inner((u-up)/dt, ut) * dx
@@ -121,8 +127,8 @@ F = (
 )
 
 bcs = [
-    DirichletBC(Z.sub(0), z_prev.sub(0), 'on_boundary'),
-    DirichletBC(Z.sub(2), 0, 'on_boundary')
+    DirichletBC(Z.sub(0), 0, (1, )), #outer boundary
+    DirichletBC(Z.sub(2), 0, (1, ))
 ]
 
 pb = NonlinearVariationalProblem(F, z, bcs)
@@ -134,14 +140,37 @@ u_.rename("Velocity")
 p_.rename("Pressure")
 B_.rename("MagneticField")
 
+B_history = []
 while (float(t) < float(T-dt)+1.0e-10):
     t.assign(t+dt)
     if mesh.comm.rank == 0:
         print(f"solving for t={float(t)}")
     mm_solver.solve()
-    mesh.coordinates.assign(mesh.coordinates + dt * w_vel) # solve for domain
+    mesh2.coordinates.assign(mesh2.coordinates + dt * w_vel) # solve for domain
 
     time_stepper.solve() # solve for PDE 
     pvd.write(*z.subfunctions, time = float(t))
     z_prev.assign(z)
+    B_history.append(z.sub(2).copy(deepcopy=True))
      
+import numpy as np
+from matplotlib.animation import FuncAnimation
+
+fig, ax = plt.subplots(figsize=(5,4))
+ax.set_aspect('equal')
+ax.set_xlabel('$x$')
+ax.set_ylabel('$y$')
+
+cs = tricontourf(B_history[0], axes=ax)
+
+def update(frame):
+    ax.clear()
+    ax.set_aspect('equal')
+    ax.set_xlabel('$x$')
+    ax.set_ylabel('$y$')
+    ax.set_title(f"t = {frame*float(dt):.2f}")
+    return tricontourf(B_history[frame], axes=ax)
+
+ani = FuncAnimation(fig, update, frames=len(B_history), interval=100)
+
+plt.show()
