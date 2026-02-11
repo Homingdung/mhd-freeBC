@@ -19,7 +19,7 @@ eta = Constant(1)
 
 # time parameter
 t = Constant(0)
-dt = Constant(0.1)
+dt = Constant(0.01)
 T = 1.0
 
 def scross(x, y):
@@ -82,14 +82,15 @@ B_init =  as_vector([1 - x**2 - y**2, x**2])
 z_prev.sub(0).interpolate(u_init)
 z_prev.sub(2).interpolate(B_init)
 
-z_prev.assign(z)
+z.assign(z_prev)
 
 # domain as a function
 V_coords = VectorFunctionSpace(mesh, 'CG', 1)
 w_vel = Function(V_coords)
 v = as_vector([x, y])*exp(-t)
 w_trial, w_test = TrialFunction(V_coords), TestFunction(V_coords)
-bc_move_mesh = DirichletBC(V_coords, v, 'on_boundary')
+bc_vel =  Function(V_coords).interpolate(z_prev.sub(0))
+bc_move_mesh = DirichletBC(V_coords, bc_vel, 'on_boundary')
 BB = inner(grad(w_trial), grad(w_test))*dx - Constant(0)*w_test[0]*dx
 
 
@@ -142,4 +143,4 @@ while (float(t) < float(T-dt)+1.0e-10):
     time_stepper.solve() # solve for PDE 
     pvd.write(*z.subfunctions, time = float(t))
     z_prev.assign(z)
-
+     
