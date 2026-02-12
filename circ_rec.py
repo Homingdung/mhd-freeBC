@@ -64,8 +64,13 @@ def plot_solution(u_h, time=None, vmin=None, vmax=None):
 
 #mesh = UnitDiskMesh(2)
 mesh = Mesh("mesh/circle_in_rect.msh")
-mesh2 = Submesh(mesh, 2, 2) # 不太对，需要指明谁是 circle
 x, y = SpatialCoordinate(mesh)
+
+DG0 = FunctionSpace(mesh, "DG", 0)
+indicator_function = Function(DG0).interpolate(conditional((x -0.5)**2 + (y -0.5)**2 < 1/16, 1, 0))
+mesh.mark_entities(indicator_function, 999)
+mesh = RelabeledMesh(mesh, [indicator_function], [999])
+mesh2 = Submesh(mesh, 2, 999)
 
 # function space
 Vg = VectorFunctionSpace(mesh, "CG", 2)
@@ -90,8 +95,11 @@ z_prev.sub(2).interpolate(B_init)
 z.assign(z_prev)
 
 # domain as a function
-V_coords = VectorFunctionSpace(mesh2, 'CG', 1)
+V_coords = VectorFunctionSpace(mesh, 'CG', 1)
+V_coords_mesh2 = VectorFunctionSpace(mesh2, 'CG', 1)
 w_vel = Function(V_coords)
+w_vel_mesh2 = Function(V_coords_mesh2)
+
 v = as_vector([x, y])*exp(-t)
 w_trial, w_test = TrialFunction(V_coords), TestFunction(V_coords)
 bc_vel =  Function(V_coords).interpolate(z_prev.sub(0))
@@ -146,7 +154,8 @@ while (float(t) < float(T-dt)+1.0e-10):
     if mesh.comm.rank == 0:
         print(f"solving for t={float(t)}")
     mm_solver.solve()
-    mesh2.coordinates.assign(mesh2.coordinates + dt * w_vel) # solve for domain
+    w_vel_mesh2.interpolate(w_vel)
+    mesh2.coordinates.assign(mesh2.coordinates + dt * w_vel_mesh2) # solve for domain
 
     time_stepper.solve() # solve for PDE 
     pvd.write(*z.subfunctions, time = float(t))
