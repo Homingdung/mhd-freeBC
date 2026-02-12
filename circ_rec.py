@@ -22,8 +22,8 @@ eta = Constant(1)
 
 # time parameter
 t = Constant(0)
-dt = Constant(0.01)
-T = 1.0
+dt = Constant(0.1)
+T = 10.0
 
 def scross(x, y):
     return x[0]*y[1] - x[1]*y[0]
@@ -86,8 +86,13 @@ z_prev = Function(Z)
 (up, pp, Bp) = split(z_prev)
 
 #initial condition
-u_init =  as_vector([1 - x**2 - y**2, x**2])
-B_init =  as_vector([1 - x**2 - y**2, x**2])
+A = 1.0        
+sigma = 0.1   
+x0, y0 = 0.5, 0.5
+psi = A * exp(-((x-x0)**2 + (y-y0)**2)/sigma**2)
+u_init = as_vector([psi.dx(1), -psi.dx(0)])
+B0 = 1.0
+B_init = as_vector([B0, 0.0])
 
 z_prev.sub(0).interpolate(u_init)
 z_prev.sub(2).interpolate(B_init)
@@ -99,10 +104,12 @@ V_coords = VectorFunctionSpace(mesh, 'CG', 1)
 V_coords_mesh2 = VectorFunctionSpace(mesh2, 'CG', 1)
 w_vel = Function(V_coords)
 w_vel_mesh2 = Function(V_coords_mesh2)
-
-v = as_vector([x, y])*exp(-t)
+ 
+# velocity of the boundary
+#v = as_vector([x, y])*exp(-t)
+v = z_prev.sub(0)
+bc_vel = Function(V_coords).interpolate(v)
 w_trial, w_test = TrialFunction(V_coords), TestFunction(V_coords)
-bc_vel =  Function(V_coords).interpolate(z_prev.sub(0))
 bc_move_mesh = DirichletBC(V_coords, bc_vel, (2, )) # interface
 BB = inner(grad(w_trial), grad(w_test))*dx - Constant(0)*w_test[0]*dx
 
@@ -134,8 +141,11 @@ F = (
 #    + s * inner(g, Bt) * dx
 )
 
+w_vel_pb = Function(Vg).interpolate(w_vel)
 bcs = [
     DirichletBC(Z.sub(0), 0, (1, )), #outer boundary
+    DirichletBC(Z.sub(0), w_vel_pb, (2, )), # interface
+    DirichletBC(Z.sub(1), 0, (2, )), # interface
     DirichletBC(Z.sub(2), 0, (1, ))
 ]
 
@@ -160,6 +170,11 @@ while (float(t) < float(T-dt)+1.0e-10):
     time_stepper.solve() # solve for PDE 
     pvd.write(*z.subfunctions, time = float(t))
     z_prev.assign(z)
+    # update the interface velocity
+    bc_vel = Function(V_coords).interpolate(z_prev.sub(0))
+    print(norm(bc_vel, "L2"))
+    #triplot(mesh2) # see whether the mesh is moving
+    #plt.show()
     B_history.append(z.sub(2).copy(deepcopy=True))
      
 import numpy as np
@@ -181,5 +196,5 @@ def update(frame):
     return tricontourf(B_history[frame], axes=ax)
 
 ani = FuncAnimation(fig, update, frames=len(B_history), interval=100)
-
+ani.save("output/cir_in_rect.gif", writer="pillow", fps=10)
 plt.show()
