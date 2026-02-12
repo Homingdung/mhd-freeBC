@@ -2,7 +2,7 @@
 from firedrake import *
 from firedrake.pyplot import tricontourf
 import matplotlib.pyplot as plt
-
+from matplotlib.animation import FuncAnimation
 # solver parameter
 lu = {
 	 "mat_type": "aij",
@@ -134,14 +134,44 @@ u_.rename("Velocity")
 p_.rename("Pressure")
 B_.rename("MagneticField")
 
+B_history = []
 while (float(t) < float(T-dt)+1.0e-10):
     t.assign(t+dt)
     if mesh.comm.rank == 0:
         print(f"solving for t={float(t)}")
+    
+    bc_vel = Function(V_coords).interpolate(z_prev.sub(0))   
+    print(norm(bc_vel, "L2"))
+    bc_move_mesh = DirichletBC(V_coords, bc_vel, 'on_boundary') #  update the moving interface
     mm_solver.solve()
     mesh.coordinates.assign(mesh.coordinates + dt * w_vel) # solve for domain
-
+    
     time_stepper.solve() # solve for PDE 
     pvd.write(*z.subfunctions, time = float(t))
     z_prev.assign(z)
+    
+    #triplot(mesh) # see whether the mesh is moving
+    #plt.show()
+    B_history.append(z.sub(0).copy(deepcopy=True))
      
+import numpy as np
+from matplotlib.animation import FuncAnimation
+
+fig, ax = plt.subplots(figsize=(5,4))
+ax.set_aspect('equal')
+ax.set_xlabel('$x$')
+ax.set_ylabel('$y$')
+
+cs = tricontourf(B_history[0], axes=ax)
+
+def update(frame):
+    ax.clear()
+    ax.set_aspect('equal')
+    ax.set_xlabel('$x$')
+    ax.set_ylabel('$y$')
+    ax.set_title(f"t = {frame*float(dt):.2f}")
+    return tricontourf(B_history[frame], axes=ax)
+
+ani = FuncAnimation(fig, update, frames=len(B_history), interval=100)
+ani.save("output/cir_in_rect.gif", writer="pillow", fps=10)
+plt.show()
